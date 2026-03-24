@@ -127,6 +127,40 @@ describe("getComposerProviderState", () => {
     });
   });
 
+  it("returns minimal state for Cursor without trait controls", () => {
+    const state = getComposerProviderState({
+      provider: "cursor",
+      model: "auto",
+      prompt: "",
+      modelOptions: undefined,
+    });
+
+    expect(state).toEqual({
+      provider: "cursor",
+      promptEffort: null,
+      modelOptionsForDispatch: undefined,
+    });
+  });
+
+  it("dispatches Cursor fast traits separately from the family model key", () => {
+    const state = getComposerProviderState({
+      provider: "cursor",
+      model: "composer-2",
+      prompt: "",
+      modelOptions: {
+        cursor: { fastMode: true },
+      },
+    });
+
+    expect(state).toEqual({
+      provider: "cursor",
+      promptEffort: null,
+      modelOptionsForDispatch: {
+        cursor: { fastMode: true },
+      },
+    });
+  });
+
   it("ignores Claude options while resolving codex state", () => {
     const state = getComposerProviderState({
       provider: "codex",

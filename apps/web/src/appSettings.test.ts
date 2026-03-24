@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import type { ProviderKind } from "@t3tools/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -14,6 +15,12 @@ import {
   patchCustomModels,
   resolveAppModelSelection,
 } from "./appSettings";
+
+const emptyCustomModelsByProvider: Record<ProviderKind, readonly string[]> = {
+  codex: [],
+  claudeAgent: [],
+  cursor: [],
+};
 
 describe("normalizeCustomModelSlugs", () => {
   it("normalizes aliases, removes built-ins, and deduplicates values", () => {
@@ -75,31 +82,31 @@ describe("resolveAppModelSelection", () => {
     expect(
       resolveAppModelSelection(
         "codex",
-        { codex: ["galapagos-alpha"], claudeAgent: [] },
+        { ...emptyCustomModelsByProvider, codex: ["galapagos-alpha"] },
         "galapagos-alpha",
       ),
     ).toBe("galapagos-alpha");
   });
 
   it("falls back to the provider default when no model is selected", () => {
-    expect(resolveAppModelSelection("codex", { codex: [], claudeAgent: [] }, "")).toBe("gpt-5.4");
+    expect(resolveAppModelSelection("codex", emptyCustomModelsByProvider, "")).toBe("gpt-5.4");
   });
 
   it("resolves display names through the shared resolver", () => {
-    expect(resolveAppModelSelection("codex", { codex: [], claudeAgent: [] }, "GPT-5.3 Codex")).toBe(
+    expect(resolveAppModelSelection("codex", emptyCustomModelsByProvider, "GPT-5.3 Codex")).toBe(
       "gpt-5.3-codex",
     );
   });
 
   it("resolves aliases through the shared resolver", () => {
-    expect(resolveAppModelSelection("claudeAgent", { codex: [], claudeAgent: [] }, "sonnet")).toBe(
+    expect(resolveAppModelSelection("claudeAgent", emptyCustomModelsByProvider, "sonnet")).toBe(
       "claude-sonnet-4-6",
     );
   });
 
   it("resolves transient selected custom models included in app model options", () => {
     expect(
-      resolveAppModelSelection("codex", { codex: [], claudeAgent: [] }, "custom/selected-model"),
+      resolveAppModelSelection("codex", emptyCustomModelsByProvider, "custom/selected-model"),
     ).toBe("custom/selected-model");
   });
 });
@@ -122,12 +129,14 @@ describe("provider-indexed custom model settings", () => {
   const settings = {
     customCodexModels: ["custom/codex-model"],
     customClaudeModels: ["claude/custom-opus"],
+    customCursorModels: [] as const,
   } as const;
 
   it("exports one provider config per provider", () => {
     expect(MODEL_PROVIDER_SETTINGS.map((config) => config.provider)).toEqual([
       "codex",
       "claudeAgent",
+      "cursor",
     ]);
   });
 
@@ -140,12 +149,14 @@ describe("provider-indexed custom model settings", () => {
     const defaults = {
       customCodexModels: ["default/codex-model"],
       customClaudeModels: ["claude/default-opus"],
+      customCursorModels: [] as const,
     } as const;
 
     expect(getDefaultCustomModelsForProvider(defaults, "codex")).toEqual(["default/codex-model"]);
     expect(getDefaultCustomModelsForProvider(defaults, "claudeAgent")).toEqual([
       "claude/default-opus",
     ]);
+    expect(getDefaultCustomModelsForProvider(defaults, "cursor")).toEqual([]);
   });
 
   it("patches custom models for codex", () => {
@@ -160,10 +171,17 @@ describe("provider-indexed custom model settings", () => {
     });
   });
 
+  it("patches custom models for cursor", () => {
+    expect(patchCustomModels("cursor", ["my-cursor-model"])).toEqual({
+      customCursorModels: ["my-cursor-model"],
+    });
+  });
+
   it("builds a complete provider-indexed custom model record", () => {
     expect(getCustomModelsByProvider(settings)).toEqual({
       codex: ["custom/codex-model"],
       claudeAgent: ["claude/custom-opus"],
+      cursor: [],
     });
   });
 
@@ -182,6 +200,7 @@ describe("provider-indexed custom model settings", () => {
     const modelOptionsByProvider = getCustomModelOptionsByProvider({
       customCodexModels: ["  custom/codex-model ", "gpt-5.4", "custom/codex-model"],
       customClaudeModels: [" sonnet ", "claude/custom-opus", "claude/custom-opus"],
+      customCursorModels: [],
     });
 
     expect(
@@ -194,6 +213,7 @@ describe("provider-indexed custom model settings", () => {
     expect(
       modelOptionsByProvider.claudeAgent.some((option) => option.slug === "claude-sonnet-4-6"),
     ).toBe(true);
+    expect(modelOptionsByProvider.cursor.some((option) => option.slug === "auto")).toBe(true);
   });
 });
 
@@ -217,6 +237,7 @@ describe("AppSettingsSchema", () => {
       timestampFormat: DEFAULT_TIMESTAMP_FORMAT,
       customCodexModels: [],
       customClaudeModels: [],
+      customCursorModels: [],
     });
   });
 });

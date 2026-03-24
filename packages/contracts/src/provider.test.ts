@@ -74,6 +74,27 @@ describe("ProviderSessionStartInput", () => {
     expect(parsed.providerOptions?.claudeAgent?.maxThinkingTokens).toBe(12_000);
     expect(parsed.runtimeMode).toBe("full-access");
   });
+
+  it("accepts cursor provider options", () => {
+    const parsed = decodeProviderSessionStartInput({
+      threadId: "thread-1",
+      provider: "cursor",
+      cwd: "/tmp/workspace",
+      model: "default",
+      runtimeMode: "full-access",
+      providerOptions: {
+        cursor: {
+          binaryPath: "/usr/local/bin/agent",
+          args: ["acp"],
+          apiEndpoint: "https://api2.cursor.sh",
+        },
+      },
+    });
+    expect(parsed.provider).toBe("cursor");
+    expect(parsed.providerOptions?.cursor?.binaryPath).toBe("/usr/local/bin/agent");
+    expect(parsed.providerOptions?.cursor?.args).toEqual(["acp"]);
+    expect(parsed.providerOptions?.cursor?.apiEndpoint).toBe("https://api2.cursor.sh");
+  });
 });
 
 describe("ProviderSendTurnInput", () => {

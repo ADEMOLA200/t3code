@@ -1,4 +1,4 @@
-import { type ModelSlug, type ProviderKind } from "@t3tools/contracts";
+import { CURSOR_MODEL_FAMILY_OPTIONS, type ModelSlug, type ProviderKind } from "@t3tools/contracts";
 import { page } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
@@ -15,6 +15,7 @@ const MODEL_OPTIONS_BY_PROVIDER = {
     { slug: "gpt-5-codex", name: "GPT-5 Codex" },
     { slug: "gpt-5.3-codex", name: "GPT-5.3 Codex" },
   ],
+  cursor: [...CURSOR_MODEL_FAMILY_OPTIONS],
 } as const satisfies Record<ProviderKind, ReadonlyArray<{ slug: ModelSlug; name: string }>>;
 
 async function mountPicker(props: {
@@ -31,6 +32,7 @@ async function mountPicker(props: {
       model={props.model}
       lockedProvider={props.lockedProvider}
       modelOptionsByProvider={MODEL_OPTIONS_BY_PROVIDER}
+      cursorModelOptions={null}
       onProviderModelChange={onProviderModelChange}
     />,
     { container: host },
@@ -87,6 +89,23 @@ describe("ProviderModelPicker", () => {
         expect(text).toContain("Claude Haiku 4.5");
         expect(text).not.toContain("Codex");
       });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps Cursor submenu values as family keys (traits resolve the CLI slug)", async () => {
+    const mounted = await mountPicker({
+      provider: "cursor",
+      model: "claude-4.6-opus-high-thinking",
+      lockedProvider: "cursor",
+    });
+
+    try {
+      await page.getByRole("button").click();
+      await page.getByRole("menuitemradio", { name: "Codex 5.3" }).click();
+
+      expect(mounted.onProviderModelChange).toHaveBeenCalledWith("cursor", "gpt-5.3-codex");
     } finally {
       await mounted.cleanup();
     }

@@ -188,7 +188,7 @@ function toLegacySessionStatus(
 }
 
 function toLegacyProvider(providerName: string | null): ProviderKind {
-  if (providerName === "codex" || providerName === "claudeAgent") {
+  if (providerName === "codex" || providerName === "claudeAgent" || providerName === "cursor") {
     return providerName;
   }
   return "codex";
@@ -196,10 +196,22 @@ function toLegacyProvider(providerName: string | null): ProviderKind {
 
 function inferProviderForThreadModel(input: {
   readonly model: string;
+  readonly threadProvider: string | null;
   readonly sessionProviderName: string | null;
 }): ProviderKind {
-  if (input.sessionProviderName === "codex" || input.sessionProviderName === "claudeAgent") {
+  if (
+    input.sessionProviderName === "codex" ||
+    input.sessionProviderName === "claudeAgent" ||
+    input.sessionProviderName === "cursor"
+  ) {
     return input.sessionProviderName;
+  }
+  if (
+    input.threadProvider === "codex" ||
+    input.threadProvider === "claudeAgent" ||
+    input.threadProvider === "cursor"
+  ) {
+    return input.threadProvider;
   }
   return inferProviderForModel(input.model);
 }
@@ -248,14 +260,22 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
     .filter((thread) => thread.deletedAt === null)
     .map((thread) => {
       const existing = existingThreadById.get(thread.id);
+      const resolvedThreadProvider =
+        thread.session?.providerName === "codex" ||
+        thread.session?.providerName === "claudeAgent" ||
+        thread.session?.providerName === "cursor"
+          ? thread.session.providerName
+          : (thread.provider ?? null);
       return {
         id: thread.id,
         codexThreadId: null,
         projectId: thread.projectId,
         title: thread.title,
+        provider: resolvedThreadProvider,
         model: resolveModelSlugForProvider(
           inferProviderForThreadModel({
             model: thread.model,
+            threadProvider: thread.provider ?? null,
             sessionProviderName: thread.session?.providerName ?? null,
           }),
           thread.model,

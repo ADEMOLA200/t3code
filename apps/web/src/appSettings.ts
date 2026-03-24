@@ -1,6 +1,11 @@
 import { useCallback } from "react";
 import { Option, Schema } from "effect";
-import { TrimmedNonEmptyString, type ProviderKind } from "@t3tools/contracts";
+import {
+  CURSOR_MODEL_FAMILY_OPTIONS,
+  MODEL_OPTIONS_BY_PROVIDER,
+  TrimmedNonEmptyString,
+  type ProviderKind,
+} from "@t3tools/contracts";
 import {
   getDefaultModel,
   getModelOptions,
@@ -17,7 +22,7 @@ export const MAX_CUSTOM_MODEL_LENGTH = 256;
 export const TimestampFormat = Schema.Literals(["locale", "12-hour", "24-hour"]);
 export type TimestampFormat = typeof TimestampFormat.Type;
 export const DEFAULT_TIMESTAMP_FORMAT: TimestampFormat = "locale";
-type CustomModelSettingsKey = "customCodexModels" | "customClaudeModels";
+type CustomModelSettingsKey = "customCodexModels" | "customClaudeModels" | "customCursorModels";
 export type ProviderCustomModelConfig = {
   provider: ProviderKind;
   settingsKey: CustomModelSettingsKey;
@@ -31,6 +36,10 @@ export type ProviderCustomModelConfig = {
 const BUILT_IN_MODEL_SLUGS_BY_PROVIDER: Record<ProviderKind, ReadonlySet<string>> = {
   codex: new Set(getModelOptions("codex").map((option) => option.slug)),
   claudeAgent: new Set(getModelOptions("claudeAgent").map((option) => option.slug)),
+  cursor: new Set([
+    ...MODEL_OPTIONS_BY_PROVIDER.cursor.map((option) => option.slug),
+    ...CURSOR_MODEL_FAMILY_OPTIONS.map((option) => option.slug),
+  ]),
 };
 
 const withDefaults =
@@ -55,6 +64,7 @@ export const AppSettingsSchema = Schema.Struct({
   timestampFormat: TimestampFormat.pipe(withDefaults(() => DEFAULT_TIMESTAMP_FORMAT)),
   customCodexModels: Schema.Array(Schema.String).pipe(withDefaults(() => [])),
   customClaudeModels: Schema.Array(Schema.String).pipe(withDefaults(() => [])),
+  customCursorModels: Schema.Array(Schema.String).pipe(withDefaults(() => [])),
   textGenerationModel: Schema.optional(TrimmedNonEmptyString),
 });
 export type AppSettings = typeof AppSettingsSchema.Type;
@@ -83,6 +93,15 @@ const PROVIDER_CUSTOM_MODEL_CONFIG: Record<ProviderKind, ProviderCustomModelConf
     description: "Save additional Claude model slugs for the picker and `/model` command.",
     placeholder: "your-claude-model-slug",
     example: "claude-sonnet-5-0",
+  },
+  cursor: {
+    provider: "cursor",
+    settingsKey: "customCursorModels",
+    defaultSettingsKey: "customCursorModels",
+    title: "Cursor",
+    description: "Save additional Cursor model identifiers for the picker when exposed by the CLI.",
+    placeholder: "your-cursor-model-id",
+    example: "gpt-5",
   },
 };
 export const MODEL_PROVIDER_SETTINGS = Object.values(PROVIDER_CUSTOM_MODEL_CONFIG);
@@ -121,6 +140,7 @@ function normalizeAppSettings(settings: AppSettings): AppSettings {
     ...settings,
     customCodexModels: normalizeCustomModelSlugs(settings.customCodexModels, "codex"),
     customClaudeModels: normalizeCustomModelSlugs(settings.customClaudeModels, "claudeAgent"),
+    customCursorModels: normalizeCustomModelSlugs(settings.customCursorModels, "cursor"),
   };
 }
 
@@ -153,6 +173,7 @@ export function getCustomModelsByProvider(
   return {
     codex: getCustomModelsForProvider(settings, "codex"),
     claudeAgent: getCustomModelsForProvider(settings, "claudeAgent"),
+    cursor: getCustomModelsForProvider(settings, "cursor"),
   };
 }
 
@@ -161,11 +182,18 @@ export function getAppModelOptions(
   customModels: readonly string[],
   selectedModel?: string | null,
 ): AppModelOption[] {
-  const options: AppModelOption[] = getModelOptions(provider).map(({ slug, name }) => ({
-    slug,
-    name,
-    isCustom: false,
-  }));
+  const options: AppModelOption[] =
+    provider === "cursor"
+      ? CURSOR_MODEL_FAMILY_OPTIONS.map(({ slug, name }) => ({
+          slug,
+          name,
+          isCustom: false,
+        }))
+      : getModelOptions(provider).map(({ slug, name }) => ({
+          slug,
+          name,
+          isCustom: false,
+        }));
   const seen = new Set(options.map((option) => option.slug));
   const trimmedSelectedModel = selectedModel?.trim().toLowerCase();
 
@@ -218,6 +246,7 @@ export function getCustomModelOptionsByProvider(
   return {
     codex: getAppModelOptions("codex", customModelsByProvider.codex),
     claudeAgent: getAppModelOptions("claudeAgent", customModelsByProvider.claudeAgent),
+    cursor: getAppModelOptions("cursor", customModelsByProvider.cursor),
   };
 }
 

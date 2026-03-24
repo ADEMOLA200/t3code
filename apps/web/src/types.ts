@@ -90,6 +90,7 @@ export interface Thread {
   codexThreadId: string | null;
   projectId: ProjectId;
   title: string;
+  provider?: ProviderKind | null;
   model: string;
   runtimeMode: RuntimeMode;
   interactionMode: ProviderInteractionMode;

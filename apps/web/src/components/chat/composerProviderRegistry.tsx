@@ -10,12 +10,14 @@ import {
   isClaudeUltrathinkPrompt,
   normalizeClaudeModelOptions,
   normalizeCodexModelOptions,
+  normalizeCursorModelOptions,
   resolveReasoningEffortForProvider,
   supportsClaudeUltrathinkKeyword,
 } from "@t3tools/shared/model";
 import type { ReactNode } from "react";
 import { ClaudeTraitsMenuContent, ClaudeTraitsPicker } from "./ClaudeTraitsPicker";
 import { CodexTraitsMenuContent, CodexTraitsPicker } from "./CodexTraitsPicker";
+import { CursorTraitsMenuContent, CursorTraitsPicker } from "./CursorTraitsPicker";
 
 export type ComposerProviderStateInput = {
   provider: ProviderKind;
@@ -38,11 +40,13 @@ type ProviderRegistryEntry = {
   renderTraitsMenuContent: (input: {
     threadId: ThreadId;
     model: ModelSlug;
+    modelOptions?: ProviderModelOptions | null;
     onPromptChange: (prompt: string) => void;
   }) => ReactNode;
   renderTraitsPicker: (input: {
     threadId: ThreadId;
     model: ModelSlug;
+    modelOptions?: ProviderModelOptions | null;
     onPromptChange: (prompt: string) => void;
   }) => ReactNode;
 };
@@ -104,6 +108,30 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
       <ClaudeTraitsPicker threadId={threadId} model={model} onPromptChange={onPromptChange} />
     ),
   },
+  cursor: {
+    getState: ({ model, modelOptions }) => {
+      const normalized = normalizeCursorModelOptions(model, modelOptions?.cursor);
+      return {
+        provider: "cursor" as const,
+        promptEffort: null,
+        modelOptionsForDispatch: normalized ? { cursor: normalized } : undefined,
+      };
+    },
+    renderTraitsMenuContent: ({ threadId, model, modelOptions }) => (
+      <CursorTraitsMenuContent
+        threadId={threadId}
+        model={model}
+        cursorModelOptions={modelOptions?.cursor ?? null}
+      />
+    ),
+    renderTraitsPicker: ({ threadId, model, modelOptions }) => (
+      <CursorTraitsPicker
+        threadId={threadId}
+        model={model}
+        cursorModelOptions={modelOptions?.cursor ?? null}
+      />
+    ),
+  },
 };
 
 export function getComposerProviderState(input: ComposerProviderStateInput): ComposerProviderState {
@@ -114,11 +142,13 @@ export function renderProviderTraitsMenuContent(input: {
   provider: ProviderKind;
   threadId: ThreadId;
   model: ModelSlug;
+  modelOptions?: ProviderModelOptions | null;
   onPromptChange: (prompt: string) => void;
 }): ReactNode {
   return composerProviderRegistry[input.provider].renderTraitsMenuContent({
     threadId: input.threadId,
     model: input.model,
+    modelOptions: input.modelOptions ?? null,
     onPromptChange: input.onPromptChange,
   });
 }
@@ -127,11 +157,13 @@ export function renderProviderTraitsPicker(input: {
   provider: ProviderKind;
   threadId: ThreadId;
   model: ModelSlug;
+  modelOptions?: ProviderModelOptions | null;
   onPromptChange: (prompt: string) => void;
 }): ReactNode {
   return composerProviderRegistry[input.provider].renderTraitsPicker({
     threadId: input.threadId,
     model: input.model,
+    modelOptions: input.modelOptions ?? null,
     onPromptChange: input.onPromptChange,
   });
 }

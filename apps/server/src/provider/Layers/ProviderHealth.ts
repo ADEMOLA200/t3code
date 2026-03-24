@@ -27,6 +27,7 @@ import { ProviderHealth, type ProviderHealthShape } from "../Services/ProviderHe
 const DEFAULT_TIMEOUT_MS = 4_000;
 const CODEX_PROVIDER = "codex" as const;
 const CLAUDE_AGENT_PROVIDER = "claudeAgent" as const;
+const CURSOR_AGENT_PROVIDER = "cursor" as const;
 
 // ── Pure helpers ────────────────────────────────────────────────────
 
@@ -264,6 +265,27 @@ const runClaudeCommand = (args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const command = ChildProcess.make("claude", [...args], {
+      shell: process.platform === "win32",
+    });
+
+    const child = yield* spawner.spawn(command);
+
+    const [stdout, stderr, exitCode] = yield* Effect.all(
+      [
+        collectStreamAsString(child.stdout),
+        collectStreamAsString(child.stderr),
+        child.exitCode.pipe(Effect.map(Number)),
+      ],
+      { concurrency: "unbounded" },
+    );
+
+    return { stdout, stderr, code: exitCode } satisfies CommandResult;
+  }).pipe(Effect.scoped);
+
+const runCursorAgentCommand = (args: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    const command = ChildProcess.make("agent", [...args], {
       shell: process.platform === "win32",
     });
 
@@ -587,14 +609,91 @@ export const checkClaudeProviderStatus: Effect.Effect<
   } satisfies ServerProviderStatus;
 });
 
+export const checkCursorProviderStatus: Effect.Effect<
+  ServerProviderStatus,
+  never,
+  ChildProcessSpawner.ChildProcessSpawner
+> = Effect.gen(function* () {
+  const checkedAt = new Date().toISOString();
+
+  const versionProbe = yield* runCursorAgentCommand(["--version"]).pipe(
+    Effect.timeoutOption(DEFAULT_TIMEOUT_MS),
+    Effect.result,
+  );
+
+  if (Result.isFailure(versionProbe)) {
+    const error = versionProbe.failure;
+    return {
+      provider: CURSOR_AGENT_PROVIDER,
+      status: "error" as const,
+      available: false,
+      authStatus: "unknown" as const,
+      checkedAt,
+      message: isCommandMissingCause(error)
+        ? "Cursor CLI (`agent`) is not installed or not on PATH."
+        : `Failed to execute Cursor CLI health check: ${error instanceof Error ? error.message : String(error)}.`,
+    };
+  }
+
+  if (Option.isNone(versionProbe.success)) {
+    return {
+      provider: CURSOR_AGENT_PROVIDER,
+      status: "error" as const,
+      available: false,
+      authStatus: "unknown" as const,
+      checkedAt,
+      message: "Cursor CLI is installed but failed to run. Timed out while running command.",
+    };
+  }
+
+  const version = versionProbe.success.value;
+  if (version.code !== 0) {
+    const detail = detailFromResult(version);
+    return {
+      provider: CURSOR_AGENT_PROVIDER,
+      status: "error" as const,
+      available: false,
+      authStatus: "unknown" as const,
+      checkedAt,
+      message: detail
+        ? `Cursor CLI is installed but failed to run. ${detail}`
+        : "Cursor CLI is installed but failed to run.",
+    };
+  }
+
+  const lower = `${version.stdout}\n${version.stderr}`.toLowerCase();
+  if (lower.includes("not logged in") || lower.includes("login required")) {
+    return {
+      provider: CURSOR_AGENT_PROVIDER,
+      status: "warning" as const,
+      available: true,
+      authStatus: "unauthenticated" as const,
+      checkedAt,
+      message: "Cursor CLI may need authentication. Run `agent login` or set CURSOR_API_KEY.",
+    };
+  }
+
+  return {
+    provider: CURSOR_AGENT_PROVIDER,
+    status: "ready" as const,
+    available: true,
+    authStatus: "unknown" as const,
+    checkedAt,
+    message: "Cursor CLI is reachable. Use `agent login` or CURSOR_API_KEY before ACP sessions.",
+  } satisfies ServerProviderStatus;
+});
+
 // ── Layer ───────────────────────────────────────────────────────────
 
 export const ProviderHealthLive = Layer.effect(
   ProviderHealth,
   Effect.gen(function* () {
-    const statusesFiber = yield* Effect.all([checkCodexProviderStatus, checkClaudeProviderStatus], {
-      concurrency: "unbounded",
-    }).pipe(Effect.forkScoped);
+    const statusesFiber = yield* Effect.all(
+      [checkCodexProviderStatus, checkClaudeProviderStatus, checkCursorProviderStatus],
+      {
+        concurrency: "unbounded",
+      },
+    ).pipe(Effect.forkScoped);
 
     return {
       getStatuses: Fiber.join(statusesFiber),

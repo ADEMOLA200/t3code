@@ -46,6 +46,27 @@ function toNonEmptyProviderInput(value: string | undefined): string | undefined 
   return normalized && normalized.length > 0 ? normalized : undefined;
 }
 
+function mergeThreadModelOptions(
+  cached: ProviderModelOptions | undefined,
+  incoming: ProviderModelOptions | undefined,
+): ProviderModelOptions | undefined {
+  if (!cached && !incoming) {
+    return undefined;
+  }
+  const next = {
+    ...(incoming?.codex !== undefined || cached?.codex !== undefined
+      ? { codex: incoming?.codex ?? cached?.codex }
+      : {}),
+    ...(incoming?.claudeAgent !== undefined || cached?.claudeAgent !== undefined
+      ? { claudeAgent: incoming?.claudeAgent ?? cached?.claudeAgent }
+      : {}),
+    ...(incoming?.cursor !== undefined || cached?.cursor !== undefined
+      ? { cursor: incoming?.cursor ?? cached?.cursor }
+      : {}),
+  } satisfies Partial<ProviderModelOptions>;
+  return Object.keys(next).length > 0 ? (next as ProviderModelOptions) : undefined;
+}
+
 function mapProviderSessionStatusToOrchestrationStatus(
   status: "connecting" | "ready" | "running" | "error" | "closed",
 ): OrchestrationSession["status"] {
@@ -233,22 +254,15 @@ const make = Effect.gen(function* () {
     )
       ? thread.session.providerName
       : undefined;
-    const threadProvider: ProviderKind = currentProvider ?? inferProviderForModel(thread.model);
+    const threadProvider: ProviderKind =
+      currentProvider ??
+      (Schema.is(ProviderKind)(thread.provider) ? thread.provider : undefined) ??
+      inferProviderForModel(thread.model);
     if (options?.provider !== undefined && options.provider !== threadProvider) {
       return yield* new ProviderAdapterRequestError({
         provider: threadProvider,
         method: "thread.turn.start",
         detail: `Thread '${threadId}' is bound to provider '${threadProvider}' and cannot switch to '${options.provider}'.`,
-      });
-    }
-    if (
-      options?.model !== undefined &&
-      inferProviderForModel(options.model, threadProvider) !== threadProvider
-    ) {
-      return yield* new ProviderAdapterRequestError({
-        provider: threadProvider,
-        method: "thread.turn.start",
-        detail: `Model '${options.model}' does not belong to provider '${threadProvider}' for thread '${threadId}'.`,
       });
     }
     const preferredProvider: ProviderKind = currentProvider ?? threadProvider;
@@ -326,10 +340,7 @@ const make = Effect.gen(function* () {
         return existingSessionThreadId;
       }
 
-      const resumeCursor =
-        providerChanged || shouldRestartForModelChange
-          ? undefined
-          : (activeSession?.resumeCursor ?? undefined);
+      const resumeCursor = providerChanged ? undefined : (activeSession?.resumeCursor ?? undefined);
       yield* Effect.logInfo("provider command reactor restarting provider session", {
         threadId,
         existingSessionThreadId,
@@ -390,8 +401,12 @@ const make = Effect.gen(function* () {
     if (input.providerOptions !== undefined) {
       threadProviderOptions.set(input.threadId, input.providerOptions);
     }
-    if (input.modelOptions !== undefined) {
-      threadModelOptions.set(input.threadId, input.modelOptions);
+    const mergedModelOptions = mergeThreadModelOptions(
+      threadModelOptions.get(input.threadId),
+      input.modelOptions,
+    );
+    if (mergedModelOptions !== undefined) {
+      threadModelOptions.set(input.threadId, mergedModelOptions);
     }
     const normalizedInput = toNonEmptyProviderInput(input.messageText);
     const normalizedAttachments = input.attachments ?? [];
@@ -411,7 +426,7 @@ const make = Effect.gen(function* () {
       ...(normalizedInput ? { input: normalizedInput } : {}),
       ...(normalizedAttachments.length > 0 ? { attachments: normalizedAttachments } : {}),
       ...(modelForTurn !== undefined ? { model: modelForTurn } : {}),
-      ...(input.modelOptions !== undefined ? { modelOptions: input.modelOptions } : {}),
+      ...(mergedModelOptions !== undefined ? { modelOptions: mergedModelOptions } : {}),
       ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
     });
   });

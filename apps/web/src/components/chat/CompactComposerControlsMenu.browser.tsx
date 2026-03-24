@@ -1,4 +1,4 @@
-import { type ProviderModelOptions, ThreadId } from "@t3tools/contracts";
+import { type ProviderKind, type ProviderModelOptions, ThreadId } from "@t3tools/contracts";
 import "../../index.css";
 
 import { page } from "vitest/browser";
@@ -8,12 +8,13 @@ import { render } from "vitest-browser-react";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
 import { ClaudeTraitsMenuContent } from "./ClaudeTraitsPicker";
 import { CodexTraitsMenuContent } from "./CodexTraitsPicker";
+import { CursorTraitsMenuContent } from "./CursorTraitsPicker";
 import { useComposerDraftStore } from "../../composerDraftStore";
 
 async function mountMenu(props?: {
   model?: string;
   prompt?: string;
-  provider?: "codex" | "claudeAgent";
+  provider?: ProviderKind;
   modelOptions?: ProviderModelOptions | null;
 }) {
   const threadId = ThreadId.makeUnsafe("thread-compact-menu");
@@ -50,13 +51,19 @@ async function mountMenu(props?: {
       traitsMenuContent={
         provider === "codex" ? (
           <CodexTraitsMenuContent threadId={threadId} />
-        ) : (
+        ) : provider === "claudeAgent" ? (
           <ClaudeTraitsMenuContent
             threadId={threadId}
             model={props?.model ?? "claude-opus-4-6"}
             onPromptChange={onPromptChange}
           />
-        )
+        ) : provider === "cursor" ? (
+          <CursorTraitsMenuContent
+            threadId={threadId}
+            model={props?.model ?? "gpt-5.3-codex"}
+            cursorModelOptions={props?.modelOptions?.cursor ?? null}
+          />
+        ) : undefined
       }
       onToggleInteractionMode={vi.fn()}
       onTogglePlanSidebar={vi.fn()}
@@ -153,6 +160,25 @@ describe("CompactComposerControlsMenu", () => {
         expect(text).toContain("Thinking");
         expect(text).toContain("On (default)");
         expect(text).toContain("Off");
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows Cursor reasoning controls for GPT-5.3 Codex family", async () => {
+    const mounted = await mountMenu({
+      provider: "cursor",
+      model: "gpt-5.3-codex-high",
+    });
+
+    try {
+      await page.getByLabelText("More composer controls").click();
+
+      await vi.waitFor(() => {
+        const text = document.body.textContent ?? "";
+        expect(text).toContain("Reasoning");
+        expect(text).toContain("Fast mode");
       });
     } finally {
       await mounted.cleanup();

@@ -110,7 +110,9 @@ describe("ProviderCommandReactor", () => {
         typeof input === "object" &&
         input !== null &&
         "provider" in input &&
-        (input.provider === "codex" || input.provider === "claudeAgent")
+        (input.provider === "codex" ||
+          input.provider === "claudeAgent" ||
+          input.provider === "cursor")
           ? input.provider
           : "codex";
       const resumeCursor =
@@ -205,7 +207,7 @@ describe("ProviderCommandReactor", () => {
       listSessions: () => Effect.succeed(runtimeSessions),
       getCapabilities: (provider) =>
         Effect.succeed({
-          sessionModelSwitch: provider === "codex" ? "in-session" : "in-session",
+          sessionModelSwitch: provider === "cursor" ? "restart-session" : "in-session",
         }),
       rollbackConversation: () => unsupported(),
       streamEvents: Stream.fromPubSub(runtimeEventPubSub),
@@ -552,50 +554,51 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
-  it("rejects a turn when the requested model belongs to a different provider", async () => {
+  it("routes turns by explicit provider even when the model slug is shared", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
 
     await Effect.runPromise(
       harness.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.makeUnsafe("cmd-thread-create-cursor-shared-slug"),
+        threadId: ThreadId.makeUnsafe("thread-shared-slug"),
+        projectId: asProjectId("project-1"),
+        title: "Shared slug thread",
+        provider: "cursor",
+        model: "gpt-5.3-codex",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        branch: null,
+        worktreePath: null,
+        createdAt: now,
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
         type: "thread.turn.start",
-        commandId: CommandId.makeUnsafe("cmd-turn-start-model-provider-mismatch"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
+        commandId: CommandId.makeUnsafe("cmd-turn-start-shared-slug"),
+        threadId: ThreadId.makeUnsafe("thread-shared-slug"),
         message: {
-          messageId: asMessageId("user-message-model-provider-mismatch"),
+          messageId: asMessageId("user-message-shared-slug"),
           role: "user",
           text: "hello",
           attachments: [],
         },
-        model: "claude-sonnet-4-6",
+        provider: "cursor",
+        model: "gpt-5.3-codex",
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
         createdAt: now,
       }),
     );
 
-    await waitFor(async () => {
-      const readModel = await Effect.runPromise(harness.engine.getReadModel());
-      const thread = readModel.threads.find(
-        (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
-      );
-      return (
-        thread?.activities.some((activity) => activity.kind === "provider.turn.start.failed") ??
-        false
-      );
-    });
-
-    expect(harness.startSession).not.toHaveBeenCalled();
-    expect(harness.sendTurn).not.toHaveBeenCalled();
-
-    const readModel = await Effect.runPromise(harness.engine.getReadModel());
-    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
-    expect(
-      thread?.activities.find((activity) => activity.kind === "provider.turn.start.failed"),
-    ).toMatchObject({
-      payload: {
-        detail: expect.stringContaining("does not belong to provider 'codex'"),
-      },
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
+      provider: "cursor",
+      model: "gpt-5.3-codex",
     });
   });
 
@@ -710,6 +713,61 @@ describe("ProviderCommandReactor", () => {
           effort: "max",
         },
       },
+    });
+  });
+
+  it("restarts cursor sessions on model changes while preserving resumeCursor", async () => {
+    const harness = await createHarness({ threadModel: "composer-2" });
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-cursor-model-1"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-cursor-model-1"),
+          role: "user",
+          text: "first cursor turn",
+          attachments: [],
+        },
+        provider: "cursor",
+        model: "composer-2",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-cursor-model-2"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-cursor-model-2"),
+          role: "user",
+          text: "second cursor turn",
+          attachments: [],
+        },
+        provider: "cursor",
+        model: "composer-2-fast",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 2);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+
+    expect(harness.startSession.mock.calls[1]?.[1]).toMatchObject({
+      provider: "cursor",
+      model: "composer-2-fast",
+      resumeCursor: { opaque: "resume-1" },
     });
   });
 

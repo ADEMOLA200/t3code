@@ -27,7 +27,7 @@ export const ORCHESTRATION_WS_CHANNELS = {
   domainEvent: "orchestration.domainEvent",
 } as const;
 
-export const ProviderKind = Schema.Literals(["codex", "claudeAgent"]);
+export const ProviderKind = Schema.Literals(["codex", "claudeAgent", "cursor"]);
 export type ProviderKind = typeof ProviderKind.Type;
 export const ProviderApprovalPolicy = Schema.Literals([
   "untrusted",
@@ -55,9 +55,17 @@ export const ClaudeProviderStartOptions = Schema.Struct({
   maxThinkingTokens: Schema.optional(NonNegativeInt),
 });
 
+export const CursorProviderStartOptions = Schema.Struct({
+  binaryPath: Schema.optional(TrimmedNonEmptyString),
+  args: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  /** Passed to Cursor CLI as `-e` when set (e.g. https://api2.cursor.sh). */
+  apiEndpoint: Schema.optional(TrimmedNonEmptyString),
+});
+
 export const ProviderStartOptions = Schema.Struct({
   codex: Schema.optional(CodexProviderStartOptions),
   claudeAgent: Schema.optional(ClaudeProviderStartOptions),
+  cursor: Schema.optional(CursorProviderStartOptions),
 });
 export type ProviderStartOptions = typeof ProviderStartOptions.Type;
 
@@ -273,6 +281,7 @@ export const OrchestrationThread = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
   title: TrimmedNonEmptyString,
+  provider: Schema.optional(ProviderKind),
   model: TrimmedNonEmptyString,
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode.pipe(
@@ -332,6 +341,7 @@ const ThreadCreateCommand = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
   title: TrimmedNonEmptyString,
+  provider: Schema.optional(ProviderKind),
   model: TrimmedNonEmptyString,
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode.pipe(
@@ -634,6 +644,7 @@ export const ThreadCreatedPayload = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
   title: TrimmedNonEmptyString,
+  provider: Schema.optional(ProviderKind),
   model: TrimmedNonEmptyString,
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
   interactionMode: ProviderInteractionMode.pipe(

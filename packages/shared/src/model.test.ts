@@ -17,6 +17,9 @@ import {
   getReasoningEffortOptions,
   inferProviderForModel,
   isClaudeUltrathinkPrompt,
+  parseCursorModelSelection,
+  resolveCursorDispatchModel,
+  resolveCursorModelFromSelection,
   normalizeClaudeModelOptions,
   normalizeCodexModelOptions,
   normalizeModelSlug,
@@ -203,6 +206,65 @@ describe("inferProviderForModel", () => {
   it("treats claude-prefixed custom slugs as claude", () => {
     expect(inferProviderForModel("claude-custom-internal")).toBe("claudeAgent");
   });
+
+  it("infers cursor from Cursor-only slugs", () => {
+    expect(inferProviderForModel("claude-4.6-opus-high-thinking")).toBe("cursor");
+    expect(inferProviderForModel("composer-1.5")).toBe("cursor");
+  });
+
+  it("infers cursor from family slugs", () => {
+    expect(inferProviderForModel("composer-2")).toBe("cursor");
+    expect(inferProviderForModel("gpt-5.4-1m")).toBe("cursor");
+    expect(inferProviderForModel("claude-4.6-opus")).toBe("cursor");
+    expect(inferProviderForModel("claude-4.6-sonnet")).toBe("cursor");
+    expect(inferProviderForModel("auto")).toBe("cursor");
+  });
+});
+
+describe("cursor model selection helpers", () => {
+  it("parses GPT-5.3 Codex reasoning and fast suffixes from slugs", () => {
+    expect(parseCursorModelSelection("gpt-5.3-codex-high-fast")).toMatchObject({
+      family: "gpt-5.3-codex",
+      reasoning: "high",
+      fast: true,
+      thinking: false,
+    });
+  });
+
+  it("merges persisted cursor modelOptions over the family model key", () => {
+    expect(parseCursorModelSelection("composer-2", { fastMode: true })).toMatchObject({
+      family: "composer-2",
+      fast: true,
+    });
+    expect(resolveCursorDispatchModel("composer-2", { fastMode: true })).toBe("composer-2-fast");
+    expect(resolveCursorDispatchModel("composer-2", undefined)).toBe("composer-2");
+  });
+
+  it("parses and resolves Claude Opus 4.6 tiers and thinking from CLI slugs", () => {
+    expect(parseCursorModelSelection("claude-4.6-opus-high-thinking")).toMatchObject({
+      family: "claude-4.6-opus",
+      thinking: true,
+      claudeOpusTier: "high",
+    });
+    expect(parseCursorModelSelection("claude-4.6-opus-max")).toMatchObject({
+      claudeOpusTier: "max",
+      thinking: false,
+    });
+    expect(
+      resolveCursorModelFromSelection({
+        family: "claude-4.6-opus",
+        thinking: true,
+        claudeOpusTier: "high",
+      }),
+    ).toBe("claude-4.6-opus-high-thinking");
+    expect(
+      resolveCursorModelFromSelection({
+        family: "claude-4.6-opus",
+        thinking: false,
+        claudeOpusTier: "max",
+      }),
+    ).toBe("claude-4.6-opus-max");
+  });
 });
 
 describe("getDefaultReasoningEffort", () => {
@@ -211,6 +273,7 @@ describe("getDefaultReasoningEffort", () => {
     expect(getDefaultReasoningEffort("claudeAgent")).toBe(
       DEFAULT_REASONING_EFFORT_BY_PROVIDER.claudeAgent,
     );
+    expect(getDefaultReasoningEffort("cursor")).toBe(DEFAULT_REASONING_EFFORT_BY_PROVIDER.cursor);
   });
 });
 
@@ -223,6 +286,11 @@ describe("resolveReasoningEffortForProvider", () => {
   it("rejects effort values from the wrong provider", () => {
     expect(resolveReasoningEffortForProvider("codex", "max")).toBeNull();
     expect(resolveReasoningEffortForProvider("claudeAgent", "xhigh")).toBeNull();
+  });
+
+  it("accepts cursor reasoning tiers", () => {
+    expect(resolveReasoningEffortForProvider("cursor", "normal")).toBe("normal");
+    expect(resolveReasoningEffortForProvider("cursor", "xhigh")).toBe("xhigh");
   });
 });
 

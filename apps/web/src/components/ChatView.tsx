@@ -24,7 +24,9 @@ import {
 import {
   applyClaudePromptEffortPrefix,
   getDefaultModel,
+  isCursorModelFamilySlug,
   normalizeModelSlug,
+  parseCursorModelSelection,
   resolveModelSlugForProvider,
 } from "@t3tools/shared/model";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -244,6 +246,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const setStoreThreadError = useStore((store) => store.setError);
   const setStoreThreadBranch = useStore((store) => store.setThreadBranch);
   const { settings } = useAppSettings();
+  const setStickyComposerProvider = useComposerDraftStore((store) => store.setStickyProvider);
   const setStickyComposerModel = useComposerDraftStore((store) => store.setStickyModel);
   const timestampFormat = settings.timestampFormat;
   const navigate = useNavigate();
@@ -271,6 +274,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
   const setComposerDraftProvider = useComposerDraftStore((store) => store.setProvider);
   const setComposerDraftModel = useComposerDraftStore((store) => store.setModel);
+  const setComposerDraftProviderModelOptions = useComposerDraftStore(
+    (store) => store.setProviderModelOptions,
+  );
   const setComposerDraftRuntimeMode = useComposerDraftStore((store) => store.setRuntimeMode);
   const setComposerDraftInteractionMode = useComposerDraftStore(
     (store) => store.setInteractionMode,
@@ -2548,6 +2554,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           threadId: threadIdForSend,
           projectId: activeProject.id,
           title,
+          provider: selectedProvider,
           model: threadCreateModel,
           runtimeMode,
           interactionMode,
@@ -3007,6 +3014,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         threadId: nextThreadId,
         projectId: activeProject.id,
         title: nextThreadTitle,
+        provider: selectedProvider,
         model: nextThreadModel,
         runtimeMode,
         interactionMode: "default",
@@ -3098,18 +3106,48 @@ export default function ChatView({ threadId }: ChatViewProps) {
       }
       const resolvedModel = resolveAppModelSelection(provider, customModelsByProvider, model);
       setComposerDraftProvider(activeThread.id, provider);
+      if (
+        provider === "cursor" &&
+        isCursorModelFamilySlug(resolvedModel) &&
+        activeThread.id.length > 0
+      ) {
+        const prevDraft = useComposerDraftStore.getState().draftsByThreadId[activeThread.id];
+        const prevModelRaw =
+          prevDraft?.model ??
+          (typeof activeThread.model === "string"
+            ? resolveModelSlugForProvider("cursor", activeThread.model)
+            : null) ??
+          getDefaultModel("cursor");
+        const prevResolved = resolveAppModelSelection(
+          "cursor",
+          customModelsByProvider,
+          prevModelRaw,
+        );
+        const prevFamily = parseCursorModelSelection(
+          prevResolved,
+          prevDraft?.modelOptions?.cursor,
+        ).family;
+        if (prevFamily !== resolvedModel) {
+          setComposerDraftProviderModelOptions(activeThread.id, "cursor", null, {
+            persistSticky: true,
+          });
+        }
+      }
       setComposerDraftModel(activeThread.id, resolvedModel);
+      setStickyComposerProvider(provider);
       setStickyComposerModel(resolvedModel);
       scheduleComposerFocus();
     },
     [
       activeThread,
+      customModelsByProvider,
       lockedProvider,
       scheduleComposerFocus,
       setComposerDraftModel,
       setComposerDraftProvider,
+      setComposerDraftProviderModelOptions,
+      setStickyComposerProvider,
       setStickyComposerModel,
-      customModelsByProvider,
     ],
   );
   const setPromptFromTraits = useCallback(
@@ -3132,12 +3170,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
     provider: selectedProvider,
     threadId,
     model: selectedModel,
+    modelOptions: draftModelOptions,
     onPromptChange: setPromptFromTraits,
   });
   const providerTraitsPicker = renderProviderTraitsPicker({
     provider: selectedProvider,
     threadId,
     model: selectedModel,
+    modelOptions: draftModelOptions,
     onPromptChange: setPromptFromTraits,
   });
   const onEnvModeChange = useCallback(
@@ -3773,6 +3813,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
                           model={selectedModelForPickerWithCustomFallback}
                           lockedProvider={lockedProvider}
                           modelOptionsByProvider={modelOptionsByProvider}
+                          cursorModelOptions={
+                            selectedProvider === "cursor"
+                              ? (draftModelOptions?.cursor ?? null)
+                              : null
+                          }
                           {...(composerProviderState.modelPickerIconClassName
                             ? {
                                 activeProviderIconClassName:

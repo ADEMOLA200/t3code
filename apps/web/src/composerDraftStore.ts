@@ -1,7 +1,10 @@
 import {
   CODEX_REASONING_EFFORT_OPTIONS,
+  CURSOR_REASONING_OPTIONS,
   type ClaudeCodeEffort,
   type CodexReasoningEffort,
+  type CursorModelOptions,
+  type CursorReasoningOption,
   DEFAULT_REASONING_EFFORT_BY_PROVIDER,
   ProjectId,
   ProviderInteractionMode,
@@ -105,6 +108,7 @@ const PersistedComposerDraftStoreState = Schema.Struct({
   draftsByThreadId: Schema.Record(ThreadId, PersistedComposerThreadDraftState),
   draftThreadsByThreadId: Schema.Record(ThreadId, PersistedDraftThreadState),
   projectDraftThreadIdByProjectId: Schema.Record(ProjectId, ThreadId),
+  stickyProvider: Schema.NullOr(ProviderKind),
   stickyModel: Schema.NullOr(Schema.String),
   stickyModelOptions: ProviderModelOptions,
 });
@@ -146,6 +150,7 @@ interface ComposerDraftStoreState {
   draftsByThreadId: Record<ThreadId, ComposerThreadDraftState>;
   draftThreadsByThreadId: Record<ThreadId, DraftThreadState>;
   projectDraftThreadIdByProjectId: Record<ProjectId, ThreadId>;
+  stickyProvider: ProviderKind | null;
   stickyModel: string | null;
   stickyModelOptions: ProviderModelOptions;
   getDraftThreadByProjectId: (projectId: ProjectId) => ProjectDraftThread | null;
@@ -177,6 +182,7 @@ interface ComposerDraftStoreState {
   clearProjectDraftThreadId: (projectId: ProjectId) => void;
   clearProjectDraftThreadById: (projectId: ProjectId, threadId: ThreadId) => void;
   clearDraftThread: (threadId: ThreadId) => void;
+  setStickyProvider: (provider: ProviderKind | null | undefined) => void;
   setStickyModel: (model: string | null | undefined) => void;
   setStickyModelOptions: (modelOptions: ProviderModelOptions | null | undefined) => void;
   setPrompt: (threadId: ThreadId, prompt: string) => void;
@@ -228,6 +234,7 @@ const EMPTY_PERSISTED_DRAFT_STORE_STATE = Object.freeze<PersistedComposerDraftSt
   draftsByThreadId: {},
   draftThreadsByThreadId: {},
   projectDraftThreadIdByProjectId: {},
+  stickyProvider: null,
   stickyModel: null,
   stickyModelOptions: EMPTY_PROVIDER_MODEL_OPTIONS,
 });
@@ -339,7 +346,7 @@ function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
 }
 
 function normalizeProviderKind(value: unknown): ProviderKind | null {
-  return value === "codex" || value === "claudeAgent" ? value : null;
+  return value === "codex" || value === "claudeAgent" || value === "cursor" ? value : null;
 }
 
 function normalizeProviderModelOptions(
@@ -355,6 +362,10 @@ function normalizeProviderModelOptions(
   const claudeCandidate =
     candidate?.claudeAgent && typeof candidate.claudeAgent === "object"
       ? (candidate.claudeAgent as Record<string, unknown>)
+      : null;
+  const cursorCandidate =
+    candidate?.cursor && typeof candidate.cursor === "object"
+      ? (candidate.cursor as Record<string, unknown>)
       : null;
 
   const codexReasoningEffort: CodexReasoningEffort | undefined =
@@ -407,12 +418,41 @@ function normalizeProviderModelOptions(
         }
       : undefined;
 
-  if (!codex && !claude) {
+  const cursorReasoningRaw = cursorCandidate?.reasoning;
+  const cursorReasoning: CursorReasoningOption | undefined =
+    typeof cursorReasoningRaw === "string" &&
+    (CURSOR_REASONING_OPTIONS as readonly string[]).includes(cursorReasoningRaw)
+      ? (cursorReasoningRaw as CursorReasoningOption)
+      : undefined;
+  const cursorFastMode = cursorCandidate?.fastMode === true;
+  const cursorThinkingFalse = cursorCandidate?.thinking === false;
+  const cursorClaudeOpusTierRaw = cursorCandidate?.claudeOpusTier;
+  const cursorClaudeOpusTier =
+    cursorClaudeOpusTierRaw === "max" || cursorClaudeOpusTierRaw === "high"
+      ? cursorClaudeOpusTierRaw
+      : undefined;
+  const defaultCursorReasoning =
+    DEFAULT_REASONING_EFFORT_BY_PROVIDER.cursor as CursorReasoningOption;
+
+  const cursor: CursorModelOptions | undefined =
+    cursorCandidate !== null
+      ? {
+          ...(cursorReasoning && cursorReasoning !== defaultCursorReasoning
+            ? { reasoning: cursorReasoning }
+            : {}),
+          ...(cursorFastMode ? { fastMode: true } : {}),
+          ...(cursorThinkingFalse ? { thinking: false } : {}),
+          ...(cursorClaudeOpusTier === "max" ? { claudeOpusTier: "max" } : {}),
+        }
+      : undefined;
+
+  if (!codex && !claude && cursor === undefined) {
     return null;
   }
   return {
     ...(codex ? { codex } : {}),
     ...(claude ? { claudeAgent: claude } : {}),
+    ...(cursor !== undefined ? { cursor } : {}),
   };
 }
 
@@ -711,6 +751,7 @@ function migratePersistedComposerDraftStoreState(
   const rawDraftMap = candidate.draftsByThreadId;
   const rawDraftThreadsByThreadId = candidate.draftThreadsByThreadId;
   const rawProjectDraftThreadIdByProjectId = candidate.projectDraftThreadIdByProjectId;
+  const stickyProvider = normalizeProviderKind(candidate.stickyProvider);
   const stickyModel =
     typeof candidate.stickyModel === "string"
       ? (normalizeModelSlug(candidate.stickyModel, "codex") ?? null)
@@ -734,6 +775,7 @@ function migratePersistedComposerDraftStoreState(
     draftsByThreadId,
     draftThreadsByThreadId,
     projectDraftThreadIdByProjectId,
+    stickyProvider,
     stickyModel,
     stickyModelOptions,
   };
@@ -789,6 +831,7 @@ function partializeComposerDraftStoreState(
     draftsByThreadId: persistedDraftsByThreadId,
     draftThreadsByThreadId: state.draftThreadsByThreadId,
     projectDraftThreadIdByProjectId: state.projectDraftThreadIdByProjectId,
+    stickyProvider: state.stickyProvider,
     stickyModel: state.stickyModel,
     stickyModelOptions: state.stickyModelOptions,
   };
@@ -806,6 +849,7 @@ function normalizeCurrentPersistedComposerDraftStoreState(
       normalizedPersistedState.draftThreadsByThreadId,
       normalizedPersistedState.projectDraftThreadIdByProjectId,
     );
+  const stickyProvider = normalizeProviderKind(normalizedPersistedState.stickyProvider);
   const stickyModel =
     typeof normalizedPersistedState.stickyModel === "string"
       ? (normalizeModelSlug(normalizedPersistedState.stickyModel, "codex") ?? null)
@@ -821,6 +865,7 @@ function normalizeCurrentPersistedComposerDraftStoreState(
     ),
     draftThreadsByThreadId,
     projectDraftThreadIdByProjectId,
+    stickyProvider,
     stickyModel,
     stickyModelOptions,
   };
@@ -973,6 +1018,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
       draftsByThreadId: {},
       draftThreadsByThreadId: {},
       projectDraftThreadIdByProjectId: {},
+      stickyProvider: null,
       stickyModel: null,
       stickyModelOptions: EMPTY_PROVIDER_MODEL_OPTIONS,
       getDraftThreadByProjectId: (projectId) => {
@@ -1210,8 +1256,19 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           };
         });
       },
+      setStickyProvider: (provider) => {
+        const normalizedProvider = normalizeProviderKind(provider);
+        set((state) => {
+          if (state.stickyProvider === normalizedProvider) {
+            return state;
+          }
+          return {
+            stickyProvider: normalizedProvider,
+          };
+        });
+      },
       setStickyModel: (model) => {
-        const normalizedModel = normalizeModelSlug(model, "codex") ?? null;
+        const normalizedModel = normalizeModelSlug(model, get().stickyProvider ?? "codex") ?? null;
         set((state) => {
           if (state.stickyModel === normalizedModel) {
             return state;
@@ -1794,6 +1851,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           draftsByThreadId,
           draftThreadsByThreadId: normalizedPersisted.draftThreadsByThreadId,
           projectDraftThreadIdByProjectId: normalizedPersisted.projectDraftThreadIdByProjectId,
+          stickyProvider: normalizedPersisted.stickyProvider,
           stickyModel: normalizedPersisted.stickyModel,
           stickyModelOptions: normalizedPersisted.stickyModelOptions,
         };
