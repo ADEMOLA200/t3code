@@ -26,8 +26,10 @@ import {
   sanitizePrTitle,
   toJsonSchemaObject,
 } from "../Utils.ts";
-import { resolveClaudeApiModelId } from "../../provider/Layers/ClaudeModelId.ts";
-import { normalizeClaudeModelOptions } from "../../provider/Layers/ClaudeProvider.ts";
+import {
+  normalizeClaudeModelOptions,
+  resolveClaudeApiModelId,
+} from "../../provider/Layers/ClaudeProvider.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 
 const CLAUDE_TIMEOUT_MS = 180_000;
