@@ -498,6 +498,7 @@ interface TerminalStateStoreState {
     hasRunningSubprocess: boolean,
   ) => void;
   clearTerminalState: (threadId: ThreadId) => void;
+  removeTerminalState: (threadId: ThreadId) => void;
   removeOrphanedTerminalStates: (activeThreadIds: Set<ThreadId>) => void;
 }
 
@@ -597,6 +598,22 @@ export const useTerminalStateStore = create<TerminalStateStoreState>()(
             return {
               terminalStateByThreadId: nextTerminalStateByThreadId,
               terminalLaunchContextByThreadId: remainingLaunchContexts,
+            };
+          }),
+        removeTerminalState: (threadId) =>
+          set((state) => {
+            const hadTerminalState = state.terminalStateByThreadId[threadId] !== undefined;
+            const hadLaunchContext = state.terminalLaunchContextByThreadId[threadId] !== undefined;
+            if (!hadTerminalState && !hadLaunchContext) {
+              return state;
+            }
+            const nextTerminalStateByThreadId = { ...state.terminalStateByThreadId };
+            delete nextTerminalStateByThreadId[threadId];
+            const nextLaunchContexts = { ...state.terminalLaunchContextByThreadId };
+            delete nextLaunchContexts[threadId];
+            return {
+              terminalStateByThreadId: nextTerminalStateByThreadId,
+              terminalLaunchContextByThreadId: nextLaunchContexts,
             };
           }),
         removeOrphanedTerminalStates: (activeThreadIds) =>
