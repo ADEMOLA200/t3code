@@ -223,12 +223,15 @@ function EventRouter() {
       domainEventFlushThrottler.maybeExecute();
     });
     const unsubTerminalEvent = api.terminal.onEvent((event) => {
-      if (event.type === "started" || event.type === "restarted") {
+      if (
+        (event.type === "started" || event.type === "restarted") &&
+        event.terminalId.startsWith("setup-")
+      ) {
         const threadId = ThreadId.makeUnsafe(event.threadId);
         ensureTerminal(threadId, event.terminalId, { open: true, active: true });
         setTerminalLaunchContext(threadId, {
           cwd: event.snapshot.cwd,
-          worktreePath: event.terminalId.startsWith("setup-") ? event.snapshot.cwd : null,
+          worktreePath: event.snapshot.cwd,
         });
       }
       const hasRunningSubprocess = terminalRunningSubprocessFromEvent(event);
