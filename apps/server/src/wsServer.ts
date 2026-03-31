@@ -733,10 +733,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
                       worktreePath: targetWorktreePath,
                     },
                     tone: "error",
-                  }).pipe(
-                    Effect.ignoreCause({ log: false }),
-                    Effect.flatMap(() => Effect.fail(toBootstrapRouteRequestError(error))),
-                  ),
+                  }).pipe(Effect.ignoreCause({ log: false })),
                 ),
               );
           })()
