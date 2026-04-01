@@ -637,13 +637,14 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     const runSetupProgram = () =>
       bootstrap.runSetupScript && targetWorktreePath
         ? (() => {
+            const worktreePath = targetWorktreePath;
             const requestedAt = new Date().toISOString();
             return projectSetupScriptRunner
               .runForThread({
                 threadId: command.threadId,
                 ...(targetProjectId ? { projectId: targetProjectId } : {}),
                 ...(targetProjectCwd ? { projectCwd: targetProjectCwd } : {}),
-                worktreePath: targetWorktreePath,
+                worktreePath,
               })
               .pipe(
                 Effect.tap((setupResult) => {
@@ -654,7 +655,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
                     scriptId: setupResult.scriptId,
                     scriptName: setupResult.scriptName,
                     terminalId: setupResult.terminalId,
-                    worktreePath: targetWorktreePath,
+                    worktreePath,
                   };
                   return Effect.all([
                     appendSetupScriptActivity({
@@ -675,22 +676,33 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
                     }),
                   ]).pipe(Effect.asVoid);
                 }),
-                Effect.catch((error) =>
-                  appendSetupScriptActivity({
+                Effect.catch((error) => {
+                  const detail =
+                    error instanceof Error ? error.message : "Unknown setup failure.";
+                  return appendSetupScriptActivity({
                     threadId: command.threadId,
                     kind: "setup-script.failed",
                     summary: "Setup script failed to start",
                     createdAt: requestedAt,
                     payload: {
-                      detail: error instanceof Error ? error.message : "Unknown setup failure.",
-                      worktreePath: targetWorktreePath,
+                      detail,
+                      worktreePath,
                     },
                     tone: "error",
                   }).pipe(
                     Effect.ignoreCause({ log: false }),
-                    Effect.flatMap(() => Effect.fail(toBootstrapRouteRequestError(error))),
-                  ),
-                ),
+                    Effect.zipRight(
+                      Effect.logWarning(
+                        "bootstrap turn start failed to launch setup script",
+                        {
+                          threadId: command.threadId,
+                          worktreePath,
+                          detail,
+                        },
+                      ),
+                    ),
+                  );
+                }),
               );
           })()
         : Effect.void;
@@ -738,9 +750,12 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     }).pipe(Effect.mapError(toBootstrapRouteRequestError));
 
     return yield* bootstrapProgram.pipe(
-      Effect.catch((error) =>
-        cleanupCreatedThread().pipe(Effect.flatMap(() => Effect.fail(error))),
-      ),
+      Effect.catchCause((cause) => {
+        if (Cause.hasInterruptsOnly(cause)) {
+          return Effect.failCause(cause);
+        }
+        return cleanupCreatedThread().pipe(Effect.zipRight(Effect.failCause(cause)));
+      }),
     );
   });
 
