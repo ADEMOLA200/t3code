@@ -407,7 +407,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         INNER JOIN projection_projects AS projects
           ON projects.project_id = threads.project_id
         WHERE threads.thread_id = ${threadId}
-          AND threads.deleted_at IS NULL
         LIMIT 1
       `,
   });
