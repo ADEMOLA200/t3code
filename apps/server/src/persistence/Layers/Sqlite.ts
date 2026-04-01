@@ -19,12 +19,12 @@ const defaultSqliteClientLoaders = {
 const makeRuntimeSqliteLayer = (
   config: RuntimeSqliteLayerConfig,
 ): Layer.Layer<SqlClient.SqlClient> =>
-  Effect.gen(function* () {
+  Effect.fn("makeRuntimeSqliteLayer")(function* () {
     const runtime = process.versions.bun !== undefined ? "bun" : "node";
     const loader = defaultSqliteClientLoaders[runtime];
     const clientModule = yield* Effect.promise<Loader>(loader);
     return clientModule.layer(config);
-  }).pipe(Layer.unwrap);
+  })().pipe(Layer.unwrap);
 
 const setup = Layer.effectDiscard(
   Effect.gen(function* () {
@@ -36,13 +36,13 @@ const setup = Layer.effectDiscard(
 );
 
 export const makeSqlitePersistenceLive = (dbPath: string) =>
-  Effect.gen(function* () {
+  Effect.fn("makeSqlitePersistenceLive")(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     yield* fs.makeDirectory(path.dirname(dbPath), { recursive: true });
 
     return Layer.provideMerge(setup, makeRuntimeSqliteLayer({ filename: dbPath }));
-  }).pipe(Layer.unwrap);
+  })().pipe(Layer.unwrap);
 
 export const SqlitePersistenceMemory = Layer.provideMerge(
   setup,
