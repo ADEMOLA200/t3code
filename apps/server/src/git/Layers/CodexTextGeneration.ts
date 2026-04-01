@@ -93,7 +93,10 @@ const makeCodexTextGeneration = Effect.gen(function* () {
       | "generateThreadTitle",
     attachments: BranchNameGenerationInput["attachments"],
   ): Effect.Effect<MaterializedImageAttachments, TextGenerationError> =>
-    Effect.gen(function* () {
+    Effect.fn("materializeImageAttachments")(function* (): Effect.fn.Return<
+      MaterializedImageAttachments,
+      TextGenerationError
+    > {
       if (!attachments || attachments.length === 0) {
         return { imagePaths: [] };
       }
@@ -120,7 +123,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
         imagePaths.push(resolvedPath);
       }
       return { imagePaths };
-    });
+    })();
 
   const runCodexJson = <S extends Schema.Top>({
     operation,
@@ -143,7 +146,11 @@ const makeCodexTextGeneration = Effect.gen(function* () {
     cleanupPaths?: ReadonlyArray<string>;
     modelSelection: CodexModelSelection;
   }): Effect.Effect<S["Type"], TextGenerationError, S["DecodingServices"]> =>
-    Effect.gen(function* () {
+    Effect.fn("runCodexJson")(function* (): Effect.fn.Return<
+      S["Type"],
+      TextGenerationError,
+      S["DecodingServices"]
+    > {
       const schemaPath = yield* writeTempFile(
         operation,
         "codex-schema",
@@ -156,7 +163,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
         (settings) => settings.providers.codex,
       ).pipe(Effect.catch(() => Effect.undefined));
 
-      const runCodexCommand = Effect.gen(function* () {
+      const runCodexCommand = Effect.fn("runCodexJson.runCodexCommand")(function* () {
         const normalizedOptions = normalizeCodexModelOptionsWithCapabilities(
           getCodexModelCapabilities(modelSelection.model),
           modelSelection.options,
@@ -237,7 +244,11 @@ const makeCodexTextGeneration = Effect.gen(function* () {
         },
       ).pipe(Effect.asVoid);
 
-      return yield* Effect.gen(function* () {
+      return yield* Effect.fn("runCodexJson.readOutput")(function* (): Effect.fn.Return<
+        S["Type"],
+        TextGenerationError,
+        S["DecodingServices"]
+      > {
         yield* runCodexCommand.pipe(
           Effect.scoped,
           Effect.timeoutOption(CODEX_TIMEOUT_MS),
@@ -272,8 +283,8 @@ const makeCodexTextGeneration = Effect.gen(function* () {
             ),
           ),
         );
-      }).pipe(Effect.ensuring(cleanup));
-    });
+      })().pipe(Effect.ensuring(cleanup));
+    })();
 
   const generateCommitMessage: TextGenerationShape["generateCommitMessage"] = Effect.fn(
     "CodexTextGeneration.generateCommitMessage",
