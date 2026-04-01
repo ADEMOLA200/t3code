@@ -12,7 +12,11 @@ export function makeManagedServerProvider<Settings>(input: {
   readonly checkProvider: Effect.Effect<ServerProvider, ServerSettingsError>;
   readonly refreshInterval?: Duration.Input;
 }): Effect.Effect<ServerProviderShape, ServerSettingsError, Scope.Scope> {
-  return Effect.gen(function* () {
+  return Effect.fn("makeManagedServerProvider")(function* (): Effect.fn.Return<
+    ServerProviderShape,
+    ServerSettingsError,
+    Scope.Scope
+  > {
     const refreshSemaphore = yield* Semaphore.make(1);
     const changesPubSub = yield* Effect.acquireRelease(
       PubSub.unbounded<ServerProvider>(),
@@ -23,25 +27,27 @@ export function makeManagedServerProvider<Settings>(input: {
     const snapshotRef = yield* Ref.make(initialSnapshot);
     const settingsRef = yield* Ref.make(initialSettings);
 
+    const applySnapshotBase = Effect.fn("applySnapshot")(function* (
+      nextSettings: Settings,
+      options?: { readonly forceRefresh?: boolean },
+    ) {
+      const forceRefresh = options?.forceRefresh === true;
+      const previousSettings = yield* Ref.get(settingsRef);
+      if (!forceRefresh && !input.haveSettingsChanged(previousSettings, nextSettings)) {
+        yield* Ref.set(settingsRef, nextSettings);
+        return yield* Ref.get(snapshotRef);
+      }
+
+      const nextSnapshot = yield* input.checkProvider;
+      yield* Ref.set(settingsRef, nextSettings);
+      yield* Ref.set(snapshotRef, nextSnapshot);
+      yield* PubSub.publish(changesPubSub, nextSnapshot);
+      return nextSnapshot;
+    });
     const applySnapshot = (nextSettings: Settings, options?: { readonly forceRefresh?: boolean }) =>
-      refreshSemaphore.withPermits(1)(
-        Effect.gen(function* () {
-          const forceRefresh = options?.forceRefresh === true;
-          const previousSettings = yield* Ref.get(settingsRef);
-          if (!forceRefresh && !input.haveSettingsChanged(previousSettings, nextSettings)) {
-            yield* Ref.set(settingsRef, nextSettings);
-            return yield* Ref.get(snapshotRef);
-          }
+      refreshSemaphore.withPermits(1)(applySnapshotBase(nextSettings, options));
 
-          const nextSnapshot = yield* input.checkProvider;
-          yield* Ref.set(settingsRef, nextSettings);
-          yield* Ref.set(snapshotRef, nextSnapshot);
-          yield* PubSub.publish(changesPubSub, nextSnapshot);
-          return nextSnapshot;
-        }),
-      );
-
-    const refreshSnapshot = Effect.gen(function* () {
+    const refreshSnapshot = Effect.fn("refreshSnapshot")(function* () {
       const nextSettings = yield* input.getSettings;
       return yield* applySnapshot(nextSettings, { forceRefresh: true });
     });
@@ -52,7 +58,7 @@ export function makeManagedServerProvider<Settings>(input: {
 
     yield* Effect.forever(
       Effect.sleep(input.refreshInterval ?? "60 seconds").pipe(
-        Effect.flatMap(() => refreshSnapshot),
+        Effect.flatMap(() => refreshSnapshot()),
         Effect.ignoreCause({ log: true }),
       ),
     ).pipe(Effect.forkScoped);
@@ -63,10 +69,10 @@ export function makeManagedServerProvider<Settings>(input: {
         Effect.tapError(Effect.logError),
         Effect.orDie,
       ),
-      refresh: refreshSnapshot.pipe(Effect.tapError(Effect.logError), Effect.orDie),
+      refresh: refreshSnapshot().pipe(Effect.tapError(Effect.logError), Effect.orDie),
       get streamChanges() {
         return Stream.fromPubSub(changesPubSub);
       },
     } satisfies ServerProviderShape;
-  });
+  })();
 }
