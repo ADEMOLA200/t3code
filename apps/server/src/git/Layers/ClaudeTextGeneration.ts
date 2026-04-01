@@ -83,7 +83,11 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
     outputSchemaJson: S;
     modelSelection: ClaudeModelSelection;
   }): Effect.Effect<S["Type"], TextGenerationError, S["DecodingServices"]> =>
-    Effect.gen(function* () {
+    Effect.fn("runClaudeJson")(function* (): Effect.fn.Return<
+      S["Type"],
+      TextGenerationError,
+      S["DecodingServices"]
+    > {
       const jsonSchemaStr = JSON.stringify(toJsonSchemaObject(outputSchemaJson));
       const normalizedOptions = normalizeClaudeModelOptionsWithCapabilities(
         getClaudeModelCapabilities(modelSelection.model),
@@ -101,7 +105,7 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
         (settings) => settings.providers.claudeAgent,
       ).pipe(Effect.catch(() => Effect.undefined));
 
-      const runClaudeCommand = Effect.gen(function* () {
+      const runClaudeCommand = Effect.fn("runClaudeJson.runClaudeCommand")(function* () {
         const command = ChildProcess.make(
           claudeSettings?.binaryPath || "claude",
           [
@@ -206,7 +210,7 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
           ),
         ),
       );
-    });
+    })();
 
   // ---------------------------------------------------------------------------
   // TextGenerationShape methods
