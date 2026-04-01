@@ -76,7 +76,11 @@ const makeWithDatabase = (
   options: SqliteClientConfig,
   openDatabase: () => DatabaseSync,
 ): Effect.Effect<Client.SqlClient, never, Scope.Scope | Reactivity.Reactivity> =>
-  Effect.gen(function* () {
+  Effect.fn("makeWithDatabase")(function* (): Effect.fn.Return<
+    Client.SqlClient,
+    never,
+    Scope.Scope | Reactivity.Reactivity
+  > {
     yield* checkNodeSqliteCompat();
 
     const compiler = Statement.makeCompilerSqlite(options.transformQueryNames);
@@ -224,7 +228,7 @@ const makeWithDatabase = (
       ],
       transformRows,
     });
-  });
+  })();
 
 const make = (
   options: SqliteClientConfig,
